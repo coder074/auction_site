@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
-import { Search, Filter, SlidersHorizontal, X } from 'lucide-react';
+import { Search, Filter, SlidersHorizontal, X, Grid, List } from 'lucide-react';
 import { CarCard } from '../components/CarCard.jsx';
 import { CarDetailModal } from '../components/CarDetailModal.jsx';
 import { BidModal } from '../components/BidModal.jsx';
+import { AuctionTableView } from '../components/AuctionTableView.jsx';
 import { useLanguage } from '../contexts/LanguageContext.jsx';
 import { useAuction } from '../contexts/AuctionContext.jsx';
+import { useAuth } from '../contexts/AuthContext.jsx';
 
 export function Auctions() {
   const [showFilters, setShowFilters] = useState(false);
@@ -12,8 +14,10 @@ export function Auctions() {
   const [showCarDetail, setShowCarDetail] = useState(false);
   const [showBidModal, setShowBidModal] = useState(false);
   const [sortBy, setSortBy] = useState('ending');
+  const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'table'
   
   const { t } = useLanguage();
+  const { user } = useAuth();
   const { 
     cars, 
     searchTerm, 
@@ -29,6 +33,10 @@ export function Auctions() {
   };
 
   const handlePlaceBid = (car) => {
+    if (!user) {
+      // Redirect to login if not authenticated
+      return;
+    }
     setSelectedCar(car);
     setShowBidModal(true);
   };
@@ -46,6 +54,8 @@ export function Auctions() {
         return b.currentBid - a.currentBid;
       case 'newest':
         return new Date(b.auctionStartTime) - new Date(a.auctionStartTime);
+      case 'bids':
+        return (b.bids?.length || 0) - (a.bids?.length || 0);
       default:
         return 0;
     }
@@ -54,6 +64,8 @@ export function Auctions() {
   const brands = Array.from(new Set(cars.map(car => car.brand))).sort();
   const conditions = ['excellent', 'good', 'fair', 'poor'];
   const statuses = ['active', 'ending-soon', 'upcoming'];
+  const fuelTypes = ['Gasoline', 'Diesel', 'Electric', 'Hybrid'];
+  const transmissions = ['Manual', 'Automatic', 'CVT'];
 
   const updateFilter = (key, value) => {
     setFilters(prev => ({ ...prev, [key]: value }));
@@ -66,10 +78,18 @@ export function Auctions() {
       year: '',
       condition: '',
       location: '',
-      status: ''
+      status: '',
+      fuelType: '',
+      transmission: ''
     });
     setSearchTerm('');
   };
+
+  // Get ending soon count for badge
+  const endingSoonCount = sortedCars.filter(car => {
+    const timeLeft = new Date(car.auctionEndTime) - new Date();
+    return timeLeft <= 24 * 60 * 60 * 1000 && timeLeft > 0; // 24 hours
+  }).length;
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
@@ -82,6 +102,14 @@ export function Auctions() {
           <p className="text-gray-600">
             {t('auctions.subtitle')}
           </p>
+          {user && user.role === 'buyer' && (
+            <div className="mt-4 p-4 bg-orange-50 border border-orange-200 rounded-lg">
+              <p className="text-orange-800">
+                <strong>Dealer Access:</strong> You have full access to bid on all vehicles. 
+                All bids are binding and final.
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Search and Filters */}
@@ -95,8 +123,24 @@ export function Auctions() {
                 placeholder={t('auctions.search.placeholder')}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
               />
+            </div>
+
+            {/* View Mode Toggle */}
+            <div className="flex items-center space-x-2 bg-gray-100 rounded-lg p-1">
+              <button
+                onClick={() => setViewMode('grid')}
+                className={`p-2 rounded ${viewMode === 'grid' ? 'bg-white shadow-sm' : 'text-gray-600'}`}
+              >
+                <Grid className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setViewMode('table')}
+                className={`p-2 rounded ${viewMode === 'table' ? 'bg-white shadow-sm' : 'text-gray-600'}`}
+              >
+                <List className="w-4 h-4" />
+              </button>
             </div>
 
             {/* Sort */}
@@ -104,28 +148,34 @@ export function Auctions() {
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
               >
                 <option value="ending">{t('auctions.sort.ending')}</option>
                 <option value="price-low">{t('auctions.sort.price.low')}</option>
                 <option value="price-high">{t('auctions.sort.price.high')}</option>
                 <option value="newest">{t('auctions.sort.newest')}</option>
+                <option value="bids">Most Bids</option>
               </select>
 
               <button
                 onClick={() => setShowFilters(!showFilters)}
-                className="flex items-center space-x-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                className="flex items-center space-x-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors relative"
               >
                 <SlidersHorizontal className="w-5 h-5" />
                 <span>{t('auctions.filters')}</span>
+                {Object.values(filters).some(filter => filter !== '') && (
+                  <span className="absolute -top-2 -right-2 bg-orange-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                    !
+                  </span>
+                )}
               </button>
             </div>
           </div>
 
-          {/* Filters */}
+          {/* Advanced Filters */}
           {showFilters && (
             <div className="mt-6 pt-6 border-t border-gray-200">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     {t('auctions.filter.brand')}
@@ -133,7 +183,7 @@ export function Auctions() {
                   <select
                     value={filters.brand}
                     onChange={(e) => updateFilter('brand', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                   >
                     <option value="">{t('common.all')}</option>
                     {brands.map(brand => (
@@ -149,7 +199,7 @@ export function Auctions() {
                   <select
                     value={filters.priceRange}
                     onChange={(e) => updateFilter('priceRange', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                   >
                     <option value="">{t('common.all')}</option>
                     <option value="under100k">Under $100K</option>
@@ -166,12 +216,14 @@ export function Auctions() {
                   <select
                     value={filters.year}
                     onChange={(e) => updateFilter('year', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                   >
                     <option value="">{t('common.all')}</option>
                     <option value="2024+">2024+</option>
                     <option value="2022-2023">2022-2023</option>
                     <option value="2020-2021">2020-2021</option>
+                    <option value="2018-2019">2018-2019</option>
+                    <option value="pre2018">Before 2018</option>
                   </select>
                 </div>
 
@@ -182,7 +234,7 @@ export function Auctions() {
                   <select
                     value={filters.condition}
                     onChange={(e) => updateFilter('condition', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                   >
                     <option value="">{t('common.all')}</option>
                     {conditions.map(condition => (
@@ -195,18 +247,16 @@ export function Auctions() {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Status
+                    Fuel Type
                   </label>
                   <select
-                    value={filters.status}
-                    onChange={(e) => updateFilter('status', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    value={filters.fuelType}
+                    onChange={(e) => updateFilter('fuelType', e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                   >
                     <option value="">{t('common.all')}</option>
-                    {statuses.map(status => (
-                      <option key={status} value={status}>
-                        {status.charAt(0).toUpperCase() + status.slice(1).replace('-', ' ')}
-                      </option>
+                    {fuelTypes.map(fuel => (
+                      <option key={fuel} value={fuel}>{fuel}</option>
                     ))}
                   </select>
                 </div>
@@ -224,24 +274,44 @@ export function Auctions() {
           )}
         </div>
 
-        {/* Results Count */}
-        <div className="mb-6">
-          <p className="text-gray-600">
-            Showing {sortedCars.length} of {cars.length} auctions
-          </p>
+        {/* Results Summary */}
+        <div className="mb-6 flex items-center justify-between">
+          <div className="flex items-center space-x-4">
+            <p className="text-gray-600">
+              Showing {sortedCars.length} of {cars.length} auctions
+            </p>
+            {endingSoonCount > 0 && (
+              <span className="px-3 py-1 bg-red-100 text-red-800 rounded-full text-sm font-medium">
+                {endingSoonCount} ending soon
+              </span>
+            )}
+          </div>
+          {user && user.role === 'buyer' && (
+            <div className="text-sm text-gray-600">
+              Logged in as: <span className="font-medium text-orange-600">{user.name}</span>
+            </div>
+          )}
         </div>
 
-        {/* Car Grid */}
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {sortedCars.map((car) => (
-            <CarCard
-              key={car.id}
-              car={car}
-              onViewDetails={handleViewDetails}
-              onPlaceBid={handlePlaceBid}
-            />
-          ))}
-        </div>
+        {/* Auction Display */}
+        {viewMode === 'grid' ? (
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {sortedCars.map((car) => (
+              <CarCard
+                key={car.id}
+                car={car}
+                onViewDetails={handleViewDetails}
+                onPlaceBid={handlePlaceBid}
+              />
+            ))}
+          </div>
+        ) : (
+          <AuctionTableView
+            cars={sortedCars}
+            onViewDetails={handleViewDetails}
+            onPlaceBid={handlePlaceBid}
+          />
+        )}
 
         {sortedCars.length === 0 && (
           <div className="text-center py-12">

@@ -47,6 +47,10 @@ export function AuctionProvider({ children }) {
     return () => clearInterval(interval);
   }, []);
 
+  const addCar = (newCar) => {
+    setCars(prevCars => [newCar, ...prevCars]);
+  };
+
   const placeBid = (carId, bidAmount, bidderId, bidderName) => {
     const car = cars.find(c => c.id === carId);
     if (!car || bidAmount <= car.currentBid) {
@@ -187,6 +191,7 @@ export function AuctionProvider({ children }) {
       setSearchTerm,
       filters,
       setFilters,
+      addCar,
       placeBid,
       addToWatchlist,
       removeFromWatchlist,
